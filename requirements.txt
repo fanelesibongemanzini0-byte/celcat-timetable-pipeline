@@ -1,0 +1,4 @@
+requests
+pymysql
+cryptography
+python-dotenv
