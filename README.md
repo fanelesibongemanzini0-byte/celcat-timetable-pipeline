@@ -135,6 +135,35 @@ In step 3, set `LIMIT = None` in the script for a full run. It takes about 6 min
 - `tt_raw.event_resources`: 10,208
 - Distinct classes in `tt.classes`: 2,350
 
+## Data cleaning process
+
+Cleaning happens in stages, and the raw data is never changed along the way. If a rule turns out to be wrong, fix it and re-run from that stage.
+
+**1. Extract (no cleaning).** The module list and every module's XML are saved exactly as CELCAT serves them, in a timestamped folder under `data/raw/`.
+
+**2. Flatten (Python, light cleaning).** `transform_modules.py` and `parse_events.py` turn the raw files into CSVs:
+
+- Split each module name into code and title, and keep the original text in `raw_name`.
+- Break each module code into `base_code`, `section` and `period`, and set aside any trailing note (for example `-NURSING SCIENCE`).
+- Derive `year_level` from the first digit of the 3-digit number in the code, and record which code scheme the module uses (digit or letter prefix).
+- Convert placeholder values (`"[None]"` and empty text) to empty cells.
+- Fill missing faculty from the most common faculty for that code prefix, and flag those rows with `faculty_derived`.
+- Keep every room and module listed on an event, not just the first one, as separate rows in `event_resources.csv`.
+
+**3. Load raw (no cleaning).** `load_raw.py` copies the CSVs into `tt_raw` as plain text. Empty cells become `NULL`.
+
+**4. Transform (SQL).** `SQL/transform.sql` builds the typed `tt` tables from `tt_raw`. It clears and rebuilds them each time, so re-running gives the same result:
+
+- Cast text to proper types (numbers, `TIME`, boolean).
+- Collapse repeated events into one row per CELCAT event id, because the same event appears in every module file it belongs to.
+- Parse each room label, such as `1217_2_AL 12 (LECTURE THEATER  [Capacity: 75])`, into venue code, building code, room name, venue type and capacity.
+- Link classes to modules and venues through junction tables, matching on the module code and room code in each event's labels.
+- Expand each weekly pattern into dated rows through the `weeks` table and the `class_occurrences` view.
+
+**5. Validate.** After a load, compare row counts with the expected figures, run `check_pipeline.py` (XML files that contain events versus modules in `events.csv`), confirm the week-1 date across all files with `check_weeks.py`, and run the double-booking check.
+
+Not yet cleaned: a few rooms are stored as two venues and some venue codes have no building code (see Limitations).
+
 ## Data quality and validation
 
 Real-world issues found while profiling the data, and how each one is handled:
